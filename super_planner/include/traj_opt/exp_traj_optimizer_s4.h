@@ -20,6 +20,9 @@
 * You should have received a copy of the GNU Lesser General Public License
 * along with SUPER. If not, see <http://www.gnu.org/licenses/>.
 */
+#ifdef logit
+#undef logit
+#endif
 
 #ifndef SUPER_EXP_TRAJ_OPT_H
 #define SUPER_EXP_TRAJ_OPT_H
@@ -40,6 +43,9 @@
 #include <utils/geometry/geometry_utils.h>
 
 #include <ros_interface/ros_interface.hpp>
+
+#include<torch/torch.h>
+#include<torch/script.h>
 
 namespace traj_opt {
 
@@ -320,6 +326,9 @@ namespace traj_opt {
 
         double optimize(Trajectory &traj, const double &relCostTol);
 
+		torch::jit::script::Module traj_model_;
+        bool use_nn_warmstart_ = false;
+        torch::Device device_{ torch::kCPU };
     public:
         typedef std::shared_ptr<ExpTrajOpt> Ptr;
 
