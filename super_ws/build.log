@@ -1,0 +1,48 @@
+[  0%] Built target _quadrotor_msgs_generate_messages_check_deps_PositionCommand
+[  0%] Built target _quadrotor_msgs_generate_messages_check_deps_MpcPositionCommand
+[  0%] Built target _quadrotor_msgs_generate_messages_check_deps_QuadrotorState
+[  0%] Built target _quadrotor_msgs_generate_messages_check_deps_PolynomialTrajectory
+[  0%] Built target geometry_msgs_generate_messages_py
+[  0%] Built target geometry_msgs_generate_messages_cpp
+[  0%] Built target nav_msgs_generate_messages_cpp
+[  0%] Built target nav_msgs_generate_messages_lisp
+[  0%] Built target nav_msgs_generate_messages_py
+[  0%] Built target geometry_msgs_generate_messages_lisp
+[  0%] Built target _quadrotor_msgs_generate_messages_check_deps_TrakingPerformance
+[  0%] Built target geometry_msgs_generate_messages_nodejs
+[  0%] Built target nav_msgs_generate_messages_eus
+[  0%] Built target nav_msgs_generate_messages_nodejs
+[  0%] Built target geometry_msgs_generate_messages_eus
+[  2%] Built target GLAD
+[  4%] Building CXX object SUPER/mission_planner/CMakeFiles/waypoint_mission.dir/Apps/ros1_waypoint_mission.cpp.o
+[ 11%] Built target quadrotor_msgs_generate_messages_cpp
+[ 23%] Built target rog_map
+[ 31%] Built target quadrotor_msgs_generate_messages_py
+[ 38%] Built target quadrotor_msgs_generate_messages_lisp
+[ 72%] Built target super
+[ 80%] Built target quadrotor_msgs_generate_messages_eus
+[ 87%] Built target quadrotor_msgs_generate_messages_nodejs
+[ 87%] Built target quadrotor_msgs_generate_messages
+[ 90%] Built target marsim_render
+[ 93%] Built target fsm_node
+Scanning dependencies of target test_render
+Scanning dependencies of target perfect_drone
+[ 94%] Building CXX object SUPER/mars_uav_sim/marsim_render/CMakeFiles/test_render.dir/test/main.cpp.o
+[ 95%] Building CXX object SUPER/mars_uav_sim/perfect_drone_sim/CMakeFiles/perfect_drone.dir/src/ros1_perfect_drone_node.cpp.o
+[ 97%] Linking CXX executable /home/tianzi/super_ws/devel/lib/mission_planner/waypoint_mission
+[ 97%] Built target waypoint_mission
+[ 98%] Linking CXX executable /home/tianzi/super_ws/devel/lib/marsim_render/test_render
+[ 98%] Built target test_render
+[100%] Linking CXX executable /home/tianzi/super_ws/devel/lib/perfect_drone_sim/perfect_drone
+[100%] Built target perfect_drone
+Base path: /home/tianzi/super_ws
+Source space: /home/tianzi/super_ws/src
+Build space: /home/tianzi/super_ws/build
+Devel space: /home/tianzi/super_ws/devel
+Install space: /home/tianzi/super_ws/install
+####
+#### Running command: "make cmake_check_build_system" in "/home/tianzi/super_ws/build"
+####
+####
+#### Running command: "make -j4" in "/home/tianzi/super_ws/build"
+####
