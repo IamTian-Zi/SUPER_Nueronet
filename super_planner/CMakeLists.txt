@@ -35,6 +35,11 @@ find_package(catkin REQUIRED COMPONENTS
         yaml-cpp
         tf
 )
+find_package(Torch REQUIRED)
+if (Torch_FOUND)
+    message(STATUS "Found LibTorch: ${TORCH_LIBRARIES}")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS}")
+endif()
 find_package(yaml-cpp REQUIRED)
 find_package(Boost REQUIRED COMPONENTS system filesystem regex iostreams)
 find_package(Eigen3 REQUIRED)
@@ -53,6 +58,7 @@ include_directories(
         ${catkin_INCLUDE_DIRS}
         ${Eigen3_INCLUDE_DIRS}
         ${PCL_INCLUDE_DIRS}
+	${TORCH_INCLUDE_DIRS}
 )
 
 
@@ -70,6 +76,7 @@ add_library(super STATIC ${srcs})
 target_include_directories(super PUBLIC
         include)
 target_link_libraries(super PUBLIC
+${TORCH_LIBRARIES}
 )
 
 
