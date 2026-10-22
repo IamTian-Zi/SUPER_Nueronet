@@ -20,10 +20,14 @@
 * You should have received a copy of the GNU Lesser General Public License
 * along with SUPER. If not, see <http://www.gnu.org/licenses/>.
 */
+#ifdef logit
+#undef logit
+#endif
 
 #include <traj_opt/exp_traj_optimizer_s4.h>
 #include <utils/optimization/lbfgs.h>
 #include <ros_interface/ros_interface.hpp>
+#include<fstream>
 
 #define POS_IDX 1
 #define VEL_IDX 2
@@ -633,6 +637,74 @@ double ExpTrajOpt::optimize(Trajectory &traj, const double &relCostTol) {
         return INFINITY;
     }
 
+    // ===== 新增：使用神经网络进行热启动 =====
+    if (use_nn_warmstart_) {
+        try {
+            // 1. 准备起点和终点 (1x6: xyz + vxvyvz)
+            auto start_tensor = torch::tensor({
+                opt_vars.headPVAJ(0, 0), opt_vars.headPVAJ(1, 0), opt_vars.headPVAJ(2, 0),
+                opt_vars.headPVAJ(0, 1), opt_vars.headPVAJ(1, 1), opt_vars.headPVAJ(2, 1)
+                }, torch::TensorOptions().dtype(torch::kFloat32)).view({ 1, 6 }).to(device_);
+
+            auto goal_tensor = torch::tensor({
+                opt_vars.tailPVAJ(0, 0), opt_vars.tailPVAJ(1, 0), opt_vars.tailPVAJ(2, 0),
+                opt_vars.tailPVAJ(0, 1), opt_vars.tailPVAJ(1, 1), opt_vars.tailPVAJ(2, 1)
+                }, torch::TensorOptions().dtype(torch::kFloat32)).view({ 1, 6 }).to(device_);
+
+            // 2. 准备 A* 初始路径 (强制对齐到 10 个点)
+            int max_wp = 10;
+            auto path_tensor = torch::zeros({ 1, max_wp, 3 }, torch::TensorOptions().dtype(torch::kFloat32));
+            auto path_accessor = path_tensor.accessor<float, 3>();
+
+            int init_size = opt_vars.init_ps.size();
+            for (int i = 0; i < max_wp; i++) {
+                // 简单的线性采样映射
+                int src_idx = (init_size > 1) ? static_cast<int>(i * (init_size - 1) / (max_wp - 1)) : 0;
+                path_accessor[0][i][0] = opt_vars.init_ps[src_idx].x();
+                path_accessor[0][i][1] = opt_vars.init_ps[src_idx].y();
+                path_accessor[0][i][2] = opt_vars.init_ps[src_idx].z();
+            }
+            path_tensor = path_tensor.to(device_);
+
+            // 3. 前向推理
+            std::vector<torch::jit::IValue> inputs;
+            inputs.push_back(start_tensor);
+            inputs.push_back(goal_tensor);
+            inputs.push_back(path_tensor);
+
+            torch::NoGradGuard no_grad;
+            auto outputs = traj_model_.forward(inputs).toTuple();
+            auto pred_q = outputs->elements()[0].toTensor().to(torch::kCPU); // (1, 9, 3)
+            auto pred_t = outputs->elements()[1].toTensor().to(torch::kCPU); // (1, 9)
+
+            // 4. 将预测值覆盖到 opt_vars 中
+            auto q_accessor = pred_q.accessor<float, 3>();
+            auto t_accessor = pred_t.accessor<float, 2>();
+
+            int nn_piece_num = pred_t.size(1); // 9
+            for (int i = 0; i < opt_vars.piece_num - 1; i++) {
+                // 如果实际段数比网络预测的多，做个简单的越界保护
+                int src_i = std::min(i, nn_piece_num - 1);
+
+                opt_vars.points(0, i) = q_accessor[0][src_i][0];
+                opt_vars.points(1, i) = q_accessor[0][src_i][1];
+                opt_vars.points(2, i) = q_accessor[0][src_i][2];
+            }
+
+            for (int i = 0; i < opt_vars.piece_num; i++) {
+                int src_i = std::min(i, nn_piece_num - 1);
+                opt_vars.times(i) = std::max(0.1f, t_accessor[0][src_i]); // 保证时间大于 0.1s
+            }
+
+            std::cout << "[TrajOpt] NN Warmstart applied! Replaced init_ps and init_ts." << std::endl;
+
+        }
+        catch (const std::exception& e) {
+            std::cerr << "[TrajOpt] NN Warmstart failed: " << e.what() << std::endl;
+        }
+    }
+    // ==========================================
+
     if (opt_vars.given_init_ts_and_ps) {
         opt_vars.times = opt_vars.init_ts;
         for (int i = 0; i < opt_vars.init_ps.size(); i++) {
@@ -689,6 +761,34 @@ double ExpTrajOpt::optimize(Trajectory &traj, const double &relCostTol) {
 //    cout << " -- [ExpOpt] waypoint_attractor: " << opt_vars.waypoint_attractor << endl;
 //    cout << " -- [ExpOpt] waypoint_attractor_dead_d: " << opt_vars.waypoint_attractor_dead_d.transpose() << endl;
     // TimeConsuming ttt(" -- [ExpTrajOpt]", false);
+    opt_vars.iter_num = 0;
+    // ===== 数据导出：记录 A* 初始输入 =====
+    std::ofstream outfile("/tmp/current_traj.csv", std::ios::app);
+    std::cout << "\n[DEBUG] ================== ENTER OPTIMIZE FUNCTION ==================\n" << std::endl;
+    if (outfile.is_open()) {
+        // 1. 记录起点和终点 (取 headPVAJ 和 tailPVAJ 的位置)
+        outfile << opt_vars.headPVAJ(0, 0) << "," << opt_vars.headPVAJ(1, 0) << "," << opt_vars.headPVAJ(2, 0) << ","
+            << opt_vars.tailPVAJ(0, 0) << "," << opt_vars.tailPVAJ(1, 0) << "," << opt_vars.tailPVAJ(2, 0) << ",";
+        //起点速度
+        outfile << opt_vars.headPVAJ(0, 1) << "," << opt_vars.headPVAJ(1, 1) << "," << opt_vars.headPVAJ(2, 1) << ",";
+        // 把终点的速度也加进 CSV
+        outfile << opt_vars.tailPVAJ(0, 1) << "," << opt_vars.tailPVAJ(1, 1) << "," << opt_vars.tailPVAJ(2, 1) << ",";
+
+        // 2. 记录 A* 初始路径点
+        for (int i = 0; i < opt_vars.init_ps.size(); i++) {
+            outfile << opt_vars.init_ps[i].x() << "," << opt_vars.init_ps[i].y() << "," << opt_vars.init_ps[i].z() << ",";
+        }
+        outfile << "|,";
+
+        // 3. 记录初始时间分配
+        for (int i = 0; i < opt_vars.init_ts.size(); i++) {
+            outfile << opt_vars.init_ts(i) << ",";
+        }
+        outfile << "|,";
+        outfile.flush();
+    }
+    // ======================================
+
     opt_vars.iter_num = 0;
     int ret = lbfgs::lbfgs_optimize(x,
                                     minCostFunctional,
@@ -750,6 +850,20 @@ double ExpTrajOpt::optimize(Trajectory &traj, const double &relCostTol) {
 //        opt_vars.minco.setConditions(opt_vars.headPVAJ, opt_vars.tailPVAJ, opt_vars.temporalDim);
         opt_vars.minco.setParameters(opt_vars.points, opt_vars.times);
         opt_vars.minco.getTrajectory(traj);
+        if (outfile.is_open()) {
+            // 4. 记录优化后的完美路径点 q
+            for (int i = 0; i < opt_vars.points.cols(); i++) {
+                outfile << opt_vars.points(0, i) << "," << opt_vars.points(1, i) << "," << opt_vars.points(2, i) << ",";
+            }
+            outfile << "|,";
+
+            // 5. 记录优化后的时间分配 T
+            for (int i = 0; i < opt_vars.times.size(); i++) {
+                outfile << opt_vars.times(i) << ",";
+            }
+            outfile << "\n";
+            outfile.close(); // 关闭文件
+        }
     } else {
         traj.clear();
         minCostFunctional = INFINITY;
@@ -789,6 +903,18 @@ ExpTrajOpt::ExpTrajOpt(const traj_opt::Config &cfg, const ros_interface::RosInte
     opt_vars.smooth_eps = cfg_.smooth_eps;
     opt_vars.integral_res = cfg_.integral_reso;
     opt_vars.quadrotor_flatness = cfg_.quadrotot_flatness;
+
+    try {
+        std::string model_path = "/home/tianzi/super_ws/src/SUPER/models/traj_warmstart_model.pt";
+        traj_model_ = torch::jit::load(model_path, device_);
+        traj_model_.eval();
+        use_nn_warmstart_ = true;
+        std::cout << "[TrajOpt] Trajectory NN Warmstart model loaded!" << std::endl;
+    }
+    catch (const c10::Error& e) {
+        std::cerr << "[TrajOpt] Failed to load NN model: " << e.what() << std::endl;
+        use_nn_warmstart_ = false;
+    }
 }
 
 ExpTrajOpt::~ExpTrajOpt() {
